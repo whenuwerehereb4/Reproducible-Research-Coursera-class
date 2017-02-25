@@ -1,0 +1,159 @@
+---
+title: "Reproducible Research - Assignment 01 (Feb 25)"
+author: "Andrew Nix"
+date: "2/25/2017"
+output: html_document
+---
+##Introduction to Assignment
+
+It is now possible to collect a large amount of data about personal movement using activity monitoring devices such as a Fitbit, Nike Fuelband, or Jawbone Up. These type of devices are part of the “quantified self” movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. But these data remain under-utilized both because the raw data are hard to obtain and there is a lack of statistical methods and software for processing and interpreting the data.
+
+This assignment makes use of data from a personal activity monitoring device. This device collects data at 5 minute intervals through out the day. The data consists of two months of data from an anonymous individual collected during the months of October and November, 2012 and include the number of steps taken in 5 minute intervals each day.
+
+The variables included in this dataset are:  
+
+1) steps: Number of steps taking in a 5-minute interval (missing values are coded as 𝙽𝙰)
+2) date: The date on which the measurement was taken in YYYY-MM-DD format  
+3) interval: Identifier for the 5-minute interval in which measurement was taken
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## 1. Code for reading in the dataset and/or processing the data
+```{r}
+#set working directory
+setwd("/Users/Andy/Desktop/Coursera/Assignments_AND_Datasets/Reproducible Research- Assignment 01")
+
+#create data frame from csv
+activity_df <-read.csv("activity.csv")
+
+# review the structure of the data frame
+str(activity_df)
+
+# review the summary of the data frame
+summary(activity_df)
+
+```
+Important notes based on a review of the structure and a summary of the data frame:  
+        - date is currently classified as a factor variable, and may need to be                converted to date for some analyses  
+        - there are 2304 NA's; these me need to be imputed or otherwise dealt with    (e.g. converted to 0 if determined to be indicative of "0 steps" during those intervals) for some analyses
+
+
+## 2. Histogram of the total number of steps taken each day
+
+```{r}
+#Because the data is presented in 5 minute intervals we need to sume up the intervals by day in order to get the total # of steps by day
+stepsXday_agg<-aggregate(activity_df$steps, by=list(activity_df$date),FUN=sum,na.rm=TRUE)
+
+#For consistency, let's ensure the column names are consistent with the original data frame 
+colnames(stepsXday_agg)<-c("date","steps")
+
+#Now we can create a histogram showing the frequency of "Total steps per day"
+library(ggplot2)
+ggplot(stepsXday_agg, aes(x = steps)) +
+  geom_histogram(fill = "blue", binwidth = 500) +
+  labs(title = "Total Steps per Day Histogram", x = "Steps X day (bin=500)", y = "Frequency of Steps per Day (% by bin)")
+
+```
+Interesting observation: 
+- There are a significant number of days with 0 steps per day (per the below code 8/61 total observations). This seems highly  unlikely (unless the person was bed-ridden on those days), suggesting that we should probably remove these dates from the analysis.  
+- However, since this is a practice exercise (and I need to get this assignment turned in) I'm not going to bother exploring that issue for now :) 
+
+```{r}
+# total days included in the analysis
+length(stepsXday_agg$steps)
+
+# total days with 0 steps 
+sum(stepsXday_agg$steps==0)
+```
+
+## 3. Mean and median number of steps taken each day
+```{r}
+ mean(stepsXday_agg$steps,na.rm = TRUE)
+
+ median(stepsXday_agg$steps,na.rm = TRUE)
+
+```
+The median observation is probably a better estimate in this case due to the issue described above (the likely invalid 0 steps per day observations)
+
+
+## 4. Time series plot of the average number of steps taken
+```{r}
+#need to convert date variable from factor to date for ggplot code to work 
+stepsXday_agg$date <- as.Date(as.character(stepsXday_agg$date))
+
+ggplot(stepsXday_agg, aes(date, steps)) + geom_line() 
+```
+
+5. The 5-minute interval that, on average, contains the maximum number of steps
+```{r}
+stepsXinterval_mean<-aggregate(activity_df$steps, by=list(activity_df$interval),FUN=mean,na.rm=TRUE)
+colnames(stepsXinterval_mean)<-c("interval","avg_steps")
+
+subset(stepsXinterval_mean, avg_steps== max(stepsXinterval_mean$avg_steps, na.rm=TRUE))
+```
+
+6. Code to describe and show a strategy for imputing missing data
+```{r}
+merged_df <- merge(activity_df, stepsXinterval_mean, by="interval")
+merged_df$steps<-as.numeric(merged_df$steps)
+merged_df_final<-merged_df
+merged_df_final$final_steps<-merged_df$steps
+steps.na<-is.na(merged_df$steps)
+merged_df_final$final_steps[steps.na]<-merged_df$avg_steps[steps.na]
+head(merged_df_final)
+merged_df_final$final_steps<-ceiling(merged_df_final$final_steps)
+head(merged_df_final)
+
+```
+7. Histogram of the total number of steps taken each day after missing values are imputed
+
+```{r}
+stepsXday_agg_imputed<-aggregate(merged_df_final$final_steps, by=list(merged_df_final$date),FUN=sum,na.rm=TRUE)
+colnames(stepsXday_agg_imputed)<-c("date","steps")
+
+  ggplot(stepsXday_agg_imputed, aes(x = steps)) +
+  geom_histogram(fill = "blue", binwidth = 500) + 
+labs(title = "Steps X Day Histogram (with Imputed values)", x = "Steps X day", y = "Frequency of Steps per Day")
+
+```
+
+8. Panel plot comparing the average number of steps taken per 5-minute interval across weekdays and weekends  
+
+
+```{r}
+merged_df_final$date <- as.Date(as.character(merged_df_final$date))
+
+weekdays1 <- c("Monday", "Tuesday", "Wednesday", "Thursday", "Friday")
+#Use `%in%` and `weekdays` to create a logical vector  
+#convert to `factor` and specify the `levels/labels`
+merged_df_final$wDay <- factor((weekdays(merged_df_final$date) %in% weekdays1), 
+         levels=c(FALSE, TRUE), labels=c('weekend', 'weekday')) 
+
+steps_SumXwdayAndinterval<-aggregate(steps~wDay+interval, data=merged_df_final, sum, na.rm=TRUE)
+
+head(steps_SumXwdayAndinterval)
+
+```
+
+Here's the actual plot
+
+```{r}
+library(lattice)
+xyplot(steps ~ interval| levels(steps_SumXwdayAndinterval$wDay), 
+            data = steps_SumXwdayAndinterval,
+            type = "l",
+            xlab = "Interval",
+            ylab = "Steps by Interval",
+            layout=c(1,2))
+```
+
+Just out of curiosity... average steps on weekends vs weekdays
+
+```{r}
+tapply(steps_SumXwdayAndinterval$steps,steps_SumXwdayAndinterval$wDay,mean)
+ 
+```
+
+
